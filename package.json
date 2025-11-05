@@ -1,0 +1,32 @@
+{
+  "name": "lab-01-introtorabbitmq",
+  "version": "1.0.0",
+  "description": "Lab 01 - Introduction to RabbitMQ",
+  "main": "src/publisher.js",
+  "scripts": {
+    "start:publisher": "node src/publisher.js",
+    "start:consumer": "node src/consumer.js",
+    "dev:publisher": "nodemon src/publisher.js",
+    "dev:consumer": "nodemon src/consumer.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/poridhioss/Lab-01-IntroToRabbitMQ.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/poridhioss/Lab-01-IntroToRabbitMQ/issues"
+  },
+  "homepage": "https://github.com/poridhioss/Lab-01-IntroToRabbitMQ#readme",
+  "dependencies": {
+    "amqplib": "^0.10.9",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}
