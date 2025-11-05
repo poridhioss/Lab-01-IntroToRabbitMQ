@@ -1,0 +1,63 @@
+### Health Check
+GET http://localhost:3000/health
+
+### Send Email Notification
+POST http://localhost:3000/send-notification
+Content-Type: application/json
+
+{
+  "type": "email",
+  "recipient": "john.doe@example.com",
+  "subject": "Welcome to Our Platform!",
+  "body": "Thank you for signing up. We're excited to have you!"
+}
+
+### Send SMS Notification
+POST http://localhost:3000/send-notification
+Content-Type: application/json
+
+{
+  "type": "sms",
+  "recipient": "+1234567890",
+  "body": "Your verification code is: 123456"
+}
+
+### Send Push Notification
+POST http://localhost:3000/send-notification
+Content-Type: application/json
+
+{
+  "type": "push",
+  "recipient": "device_token_xyz",
+  "subject": "New Message",
+  "body": "You have a new message from Jane"
+}
+
+### Send Bulk Notifications
+POST http://localhost:3000/send-bulk-notifications
+Content-Type: application/json
+
+{
+  "notifications": [
+    {
+      "type": "email",
+      "recipient": "user1@example.com",
+      "subject": "Bulk Email 1",
+      "body": "This is bulk email 1"
+    },
+    {
+      "type": "sms",
+      "recipient": "+1111111111",
+      "body": "Bulk SMS message"
+    },
+    {
+      "type": "push",
+      "recipient": "device_1",
+      "subject": "Bulk Push",
+      "body": "This is a bulk push notification"
+    }
+  ]
+}
+
+### Get Queue Stats
+GET http://localhost:3000/queue-stats

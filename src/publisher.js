@@ -1,12 +1,12 @@
 const express = require('express');
 const amqp = require('amqplib');
 const config = require('../config/rabbitmq.config');
-const Logger = require('../utils/logger');
+const Logger = require('./utils/logger');
 
 const logger = new Logger('PUBLISHER');
 const app = express();
 
-// Middleware to parse JSON bodies
+// Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -14,43 +14,44 @@ app.use(express.urlencoded({ extended: true }));
 let connection = null;
 let channel = null;
 
-// Initialize RabbitMQ connection and channel
+/**
+ * Initialize RabbitMQ Connection
+ * Creates a connection and channel, then asserts the queue exists
+ */
 async function initRabbitMQ() {
-    try {
-        logger.info('Connecting to RabbitMQ...', { url: config.url });
+  try {
+    logger.info('Connecting to RabbitMQ...');
+    
+    // Create connection
+    connection = await amqp.connect(config.url);
+    logger.info('Connected to RabbitMQ successfully');
 
-        // Create connection
-        connection = await amqp.connect(config.url);
-        logger.info('RabbitMQ connection established.');
+    // Create channel
+    channel = await connection.createChannel();
+    logger.info('Channel created successfully');
 
+    // Assert queue exists (create if it doesn't)
+    await channel.assertQueue(config.queue.name, config.queue.options);
+    logger.info(`Queue '${config.queue.name}' is ready`, {
+      queueName: config.queue.name,
+      durable: config.queue.options.durable,
+    });
 
-        // Create channel
-        channel = await connection.createChannel();
-        logger.info('RabbitMQ channel created.');
+    // Handle connection errors
+    connection.on('error', (err) => {
+      logger.error('RabbitMQ connection error', { error: err.message });
+    });
 
-        // Assert queue
-        await channel.assertQueue(config.queue.name, config.queue.options);
-        logger.info(`Queue "${config.queue.name}" is ready.`, {
-            queueName: config.queue.name,
-            durable: config.queue.options.durable,
-        });
+    // Handle connection close
+    connection.on('close', () => {
+      logger.warn('RabbitMQ connection closed');
+    });
 
-        // Handle connection error
-        connection.on('error', (err) => {
-            logger.error('RabbitMQ connection error:', { error: err.message });
-        });
-
-        // Handle connection close
-        connection.on('close', () => {
-            logger.warn('RabbitMQ connection closed. Attempting to reconnect...');
-            setTimeout(initRabbitMQ, 5000); // Retry connection after 5 seconds
-        });
-
-        return { connection, channel };
-    } catch (error) {
-        logger.error('Failed to initialize RabbitMQ.', { error: error.message });
-        throw error;
-    }
+    return { connection, channel };
+  } catch (error) {
+    logger.error('Failed to initialize RabbitMQ', { error: error.message });
+    throw error;
+  }
 }
 
 /**
@@ -58,107 +59,108 @@ async function initRabbitMQ() {
  * @param {Object} message - Message payload
  * @returns {Boolean} - Success status
  */
-
 async function publishMessage(message) {
-    try {
-        if (!channel) {
-            throw new Error('RabbitMQ channel is not initialized.');
-        }
-
-        // convert message to Buffer
-        const messageBuffer = Buffer.from(JSON.stringify(message));
-
-        // Send message to queue
-        const result = channel.sendToQueue(
-            config.queue.name,
-            messageBuffer,
-            config.messageOptions
-        );
-
-        if (result) {
-            logger.info('Message published to queue.', {
-                queueName: config.queue.name,
-                messageId: message.id,
-            });
-
-            return true;
-        } else {
-            logger.warn('Message buffered (queue is full).', {
-                queueName: config.queue.name,
-                messageId: message.id,
-            });
-            return false;
-        }
-    } catch (error) {
-        logger.error('Failed to publish message.', { error: error.message });
-        throw error;
+  try {
+    if (!channel) {
+      throw new Error('Channel not initialized');
     }
+
+    // Convert message to Buffer
+    const messageBuffer = Buffer.from(JSON.stringify(message));
+
+    // Send message to queue
+    const result = channel.sendToQueue(
+      config.queue.name,
+      messageBuffer,
+      config.messageOptions
+    );
+
+    if (result) {
+      logger.info('Message published successfully', {
+        queueName: config.queue.name,
+        messageId: message.id,
+      });
+      return true;
+    } else {
+      logger.warn('Message buffered (queue full)', {
+        messageId: message.id,
+      });
+      return false;
+    }
+  } catch (error) {
+    logger.error('Failed to publish message', { error: error.message });
+    throw error;
+  }
 }
 
 /**
  * API Routes
  */
 
-// health endpoint
+// Health check endpoint
 app.get('/health', (req, res) => {
-    const healthStatus = {
-        status: 'OK',
-        timestamp: new Date().toISOString(),
-        rabbitMQ: {
-            connected: connection !== null && connection.connection.stream.writable,
-            channelActive: channel !== null,
-        },
-    };
-    res.status(200).json(healthStatus);
-})
+  const health = {
+    status: 'OK',
+    timestamp: new Date().toISOString(),
+    rabbitMQ: {
+      connected: connection !== null,
+      channelActive: channel !== null,
+    },
+  };
+  res.json(health);
+});
 
-
-// Send Notification endpoint
+// Send notification endpoint
 app.post('/send-notification', async (req, res) => {
-    try {
-        const { type, recipent, subject, body } = req.body;
+  try {
+    const { type, recipient, subject, body } = req.body;
 
-        if (!type || !recipent || !subject || !body) {
-            logger.warn('Invalid notification payload received.', { payload: req.body });
-            return res.status(400).json({
-                sucess: false, 
-                error: 'Invalid payload. Required fields: type, recipent, subject, body.' 
-            });
-        }
-
-        const message = {
-            id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            type,
-            recipent,
-            subject: subject || 'Notification',
-            body,
-            timestamp: new Date().toISOString(),
-            status: 'queued',
-        };
-
-        publishMessage(message);
-
-        logger.info('Notification request processed successfully.', { 
-            messageId: message.id,
-            type: message.type,
-            recipent: message.recipent, 
-        });
-
-        res.status(202).json({
-            success: true, 
-            message: 'Notification queued for delivery.', 
-            data: {
-                messageId: message.id,
-                queuedAt: message.timestamp,
-            }, 
-        })
-    } catch (error) {
-        logger.error('Error in send-notification endpoint.', { 
-            error: error.message 
-        });
-        res.status(500).json({ error: 'Internal Server Error' });
+    // Validate input
+    if (!type || !recipient || !body) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: type, recipient, body',
+      });
     }
-})
+
+    // Create message object
+    const message = {
+      id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      type, // email, sms, push
+      recipient,
+      subject: subject || 'Notification',
+      body,
+      timestamp: new Date().toISOString(),
+      status: 'queued',
+    };
+
+    // Publish to RabbitMQ
+    await publishMessage(message);
+
+    logger.info('Notification queued', {
+      messageId: message.id,
+      type: message.type,
+      recipient: message.recipient,
+    });
+
+    res.status(202).json({
+      success: true,
+      message: 'Notification queued for processing',
+      data: {
+        messageId: message.id,
+        queuedAt: message.timestamp,
+      },
+    });
+  } catch (error) {
+    logger.error('Error in send-notification endpoint', {
+      error: error.message,
+    });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to queue notification',
+    });
+  }
+});
 
 // Bulk send notifications
 app.post('/send-bulk-notifications', async (req, res) => {
@@ -185,7 +187,7 @@ app.post('/send-bulk-notifications', async (req, res) => {
         status: 'queued',
       };
 
-      publishMessage(message);
+      await publishMessage(message);
       results.push({ messageId: message.id, status: 'queued' });
     }
 
